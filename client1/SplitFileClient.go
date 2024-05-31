@@ -44,6 +44,13 @@ func putFile(fileName string) {
 	}
 	defer file.Close()
 
+	// Get file size
+	fileInfo, err := file.Stat()
+	if err != nil {
+		log.Fatalf("Failed to get file info: %v", err)
+	}
+	fileSize := fileInfo.Size()
+
 	// Connect to server1
 	conn1, err := net.Dial("tcp", server1Address)
 	if err != nil {
@@ -66,14 +73,18 @@ func putFile(fileName string) {
 	var wg sync.WaitGroup
 	wg.Add(2)
 
+	// Create SectionReaders for each part
+	sectionReader1 := io.NewSectionReader(file, 0, fileSize)
+	sectionReader2 := io.NewSectionReader(file, 0, fileSize)
+
 	go func() {
 		defer wg.Done()
-		sendAlternateBytes(file, conn1, 0)
+		sendAlternateBytes(sectionReader1, conn1, 0)
 	}()
 
 	go func() {
 		defer wg.Done()
-		sendAlternateBytes(file, conn2, 1)
+		sendAlternateBytes(sectionReader2, conn2, 1)
 	}()
 
 	wg.Wait()
@@ -125,20 +136,11 @@ func sendCommand(conn net.Conn, action string) {
 	}
 }
 
-func sendAlternateBytes(file *os.File, writer io.Writer, offset int) {
+func sendAlternateBytes(reader io.Reader, writer io.Writer, offset int) {
 	buffer := make([]byte, 1024) // chunk size: 1024 byte
 
-	// moves file pointer to beginning + offset.
-	// when offset = 0; file pointer points to first byte of the file
-	// when offset = 1; file pointer points to second byte of the file
-	/*_, err := file.Seek(int64(offset), io.SeekStart)
-	if err != nil {
-		log.Fatalf("Failed to seek file: %v", err)
-	}
-	*/
-
 	for {
-		n, err := file.Read(buffer)      // reads 1024 bytes(chunk) of file
+		n, err := reader.Read(buffer)      // reads 1024 bytes(chunk) of file
 		if err != nil && err != io.EOF { // failed to read file
 			log.Fatalf("Failed to read file: %v", err)
 		}
