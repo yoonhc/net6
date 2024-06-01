@@ -108,8 +108,8 @@ func getFile(fileName string) {
 	}
 	defer conn2.Close()
 
-	sendCommand(conn1, "get "+fileName)
-	sendCommand(conn2, "get "+fileName)
+	sendCommand(conn1, "get "+part1FileName)
+	sendCommand(conn2, "get "+part2FileName)
 
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -140,7 +140,7 @@ func sendAlternateBytes(reader io.Reader, writer io.Writer, offset int) {
 	buffer := make([]byte, 1024) // chunk size: 1024 byte
 
 	for {
-		n, err := reader.Read(buffer)      // reads 1024 bytes(chunk) of file
+		n, err := reader.Read(buffer)    // reads 1024 bytes(chunk) of file
 		if err != nil && err != io.EOF { // failed to read file
 			log.Fatalf("Failed to read file: %v", err)
 		}

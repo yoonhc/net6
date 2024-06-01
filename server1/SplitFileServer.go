@@ -5,6 +5,7 @@
 package main
 
 import (
+	"bufio"
 	"io"
 	"log"
 	"net"
@@ -39,14 +40,18 @@ func main() {
 func handleConnection(conn net.Conn) {
 	defer conn.Close()
 
-	buf := make([]byte, 256)
-	n, err := conn.Read(buf)
+	reader := bufio.NewReader(conn)
+
+	command, err := reader.ReadString('\n')
 	if err != nil {
+		if err == io.EOF {
+			log.Println("Connection closed by client")
+			return
+		}
 		log.Printf("Failed to read command: %v", err)
 		return
 	}
-	command := strings.TrimSpace(string(buf[:n]))
-
+	command = strings.TrimSpace(command)
 	parts := strings.Split(command, " ")
 	if len(parts) != 2 {
 		log.Printf("Invalid command: %s", command)
@@ -57,7 +62,7 @@ func handleConnection(conn net.Conn) {
 	log.Print(partFileName)
 
 	if action == "put" {
-		receiveFile(conn, partFileName)
+		receiveFile(reader, partFileName)
 	} else if action == "get" {
 		sendFile(conn, partFileName)
 	} else {
@@ -66,7 +71,7 @@ func handleConnection(conn net.Conn) {
 }
 
 // receive split file from the client
-func receiveFile(conn net.Conn, partFileName string) {
+func receiveFile(reader *bufio.Reader, partFileName string) {
 	file, err := os.Create(partFileName)
 	if err != nil {
 		log.Printf("Failed to create file: %v", err)
@@ -74,7 +79,7 @@ func receiveFile(conn net.Conn, partFileName string) {
 	}
 	defer file.Close()
 
-	_, err = io.Copy(file, conn)
+	_, err = io.Copy(file, reader)
 	if err != nil {
 		log.Printf("Failed to write data to file: %v", err)
 		return
