@@ -15,16 +15,16 @@ import (
 )
 
 const (
-	server1Address = "nsl2.cau.ac.kr:42253"
-	server2Address = "nsl5.cau.ac.kr:52253"
+	server1 = "nsl2.cau.ac.kr:42253"
+	server2 = "nsl5.cau.ac.kr:52253"
 )
 
 func main() {
 	if len(os.Args) != 3 {
-		log.Fatalf("Usage: %s <put/get> <filename>", os.Args[0])
+		log.Fatalf("Usage: go run SplitFileClient.go <put/get> <filename>")
 	}
 
-	action := os.Args[1]   // <put/get>
+	action := os.Args[1]   // <put/get> command
 	fileName := os.Args[2] // <filename>
 
 	if action == "put" {
@@ -52,23 +52,26 @@ func putFile(fileName string) {
 	fileSize := fileInfo.Size()
 
 	// Connect to server1
-	conn1, err := net.Dial("tcp", server1Address)
+	conn1, err := net.Dial("tcp", server1)
 	if err != nil {
 		log.Fatalf("Failed to connect to server1: %v", err)
 	}
 	defer conn1.Close()
 
 	// Connect to server2
-	conn2, err := net.Dial("tcp", server2Address)
+	conn2, err := net.Dial("tcp", server2)
 	if err != nil {
 		log.Fatalf("Failed to connect to server2: %v", err)
 	}
 	defer conn2.Close()
 
+	// filename.xxx -> filename-part1.xxx / filename-part2.xxx
 	part1FileName := addSuffixToFileName(fileName, "part1")
 	part2FileName := addSuffixToFileName(fileName, "part2")
-	sendCommand(conn1, "put "+part1FileName)
-	sendCommand(conn2, "put "+part2FileName)
+
+	// 0: put command, 1: get command
+	sendCommand(conn1, "0:"+part1FileName)
+	sendCommand(conn2, "0:"+part2FileName)
 
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -96,20 +99,23 @@ func getFile(fileName string) {
 	part2FileName := addSuffixToFileName(fileName, "part2")
 	mergedFileName := addSuffixToFileName(fileName, "merged")
 
-	conn1, err := net.Dial("tcp", server1Address)
+	// connect to server1
+	conn1, err := net.Dial("tcp", server1)
 	if err != nil {
 		log.Fatalf("Failed to connect to server1: %v", err)
 	}
 	defer conn1.Close()
 
-	conn2, err := net.Dial("tcp", server2Address)
+	// connect to server 2
+	conn2, err := net.Dial("tcp", server2)
 	if err != nil {
 		log.Fatalf("Failed to connect to server2: %v", err)
 	}
 	defer conn2.Close()
 
-	sendCommand(conn1, "get "+part1FileName)
-	sendCommand(conn2, "get "+part2FileName)
+	// 0: put command, 1: get command
+	sendCommand(conn1, "1:"+part1FileName)
+	sendCommand(conn2, "1:"+part2FileName)
 
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -140,11 +146,11 @@ func sendAlternateBytes(reader io.Reader, writer io.Writer, offset int) {
 	buffer := make([]byte, 1024) // chunk size: 1024 byte
 
 	for {
-		n, err := reader.Read(buffer)    // reads 1024 bytes(chunk) of file
+		n, err := reader.Read(buffer)    // read 1024 bytes(A chunk) of file
 		if err != nil && err != io.EOF { // failed to read file
 			log.Fatalf("Failed to read file: %v", err)
 		}
-		if n == 0 { // number of bytes read from chunk = 0 which means EOF
+		if n == 0 { // number of bytes read from chunk is 0 which means EOF
 			break
 		}
 
@@ -221,7 +227,7 @@ func mergeFiles(outputFileName, part1FileName, part2FileName string) {
 			}
 		}
 
-		// both file pointers reached to EOF
+		// both file pointers reached EOF
 		if err1 == io.EOF && err2 == io.EOF {
 			log.Println("File received and merged successfully")
 			break

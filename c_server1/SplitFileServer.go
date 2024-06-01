@@ -16,7 +16,7 @@ import (
 
 func main() {
 	if len(os.Args) != 2 {
-		log.Fatalf("Usage: %s <port>", os.Args[0])
+		log.Fatalf("Usage: go run SplitFileServer.go <port>")
 	}
 	port := os.Args[1]
 
@@ -42,6 +42,7 @@ func handleConnection(conn net.Conn) {
 
 	reader := bufio.NewReader(conn)
 
+	// command format: <1:filename>
 	command, err := reader.ReadString('\n')
 	if err != nil {
 		if err == io.EOF {
@@ -52,18 +53,19 @@ func handleConnection(conn net.Conn) {
 		return
 	}
 	command = strings.TrimSpace(command)
-	parts := strings.Split(command, " ")
+	parts := strings.Split(command, ":")
 	if len(parts) != 2 {
 		log.Printf("Invalid command: %s", command)
 		return
 	}
 
+	// action 0: <put>	action 1: <get>
 	action, partFileName := parts[0], parts[1]
 	log.Print(partFileName)
 
-	if action == "put" {
+	if action == "0" { // put command
 		receiveFile(reader, partFileName)
-	} else if action == "get" {
+	} else if action == "1" { // get command
 		sendFile(conn, partFileName)
 	} else {
 		log.Printf("Unknown action: %s", action)
