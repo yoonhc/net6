@@ -194,17 +194,36 @@ func addSuffixToFileName(fileName, suffix string) (filename string) {
 }
 
 func mergeAndWriteBytes(ch1, ch2 <-chan []byte, file *os.File, done chan<- bool) {
-	var b1, b2 []byte
-	var ok1, ok2 bool
-	readFromCh1 := true
-
+	
 	for {
-		b1, ok1 = <-ch1
-		b2, ok2 = <-ch2
-		if(ok1 && ok2){
-			// write alternate bytes form b1 and b2 to file
+		b1, ok1 := <-ch1
+		b2, ok2 := <-ch2
 
+		// If both channels are closed, we are done
+		if !ok1 && !ok2 {
+			break
+		}
+
+		// Write bytes from b1 to file (odd bytes)
+		if ok1 {
+			for i := 0; i < len(b1); i += 2 {
+				_, err := file.Write([]byte{b1[i]})
+				if err != nil {
+					log.Fatalf("Failed to write to merged file: %v", err)
+				}
+			}
+		}
+
+		// Write bytes from b2 to file (even bytes)
+		if ok2 {
+			for i := 1; i < len(b2); i += 2 {
+				_, err := file.Write([]byte{b2[i]})
+				if err != nil {
+					log.Fatalf("Failed to write to merged file: %v", err)
+				}
+			}
 		}
 	}
-	done <- true
+
+	log.Println("Merging completed")
 }
