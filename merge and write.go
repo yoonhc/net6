@@ -5,6 +5,7 @@
 package main
 
 import (
+	"bufio"
 	"io"
 	"log"
 	"net"
@@ -40,28 +41,32 @@ func putFile(fileName string) {
 	// Open File
 	file, err := os.Open(fileName)
 	if err != nil {
-		log.Fatalf("Failed to open file: %v", err)
+		log.Printf("Failed to open file: %v", err)
+		return
 	}
 	defer file.Close()
 
 	// Get file size
 	fileInfo, err := file.Stat()
 	if err != nil {
-		log.Fatalf("Failed to get file info: %v", err)
+		log.Printf("Failed to get file info: %v", err)
+		return
 	}
 	fileSize := fileInfo.Size()
 
 	// Connect to server1
 	conn1, err := net.Dial("tcp", server1)
 	if err != nil {
-		log.Fatalf("Failed to connect to server1: %v", err)
+		log.Printf("Failed to connect to server1: %v", err)
+		return
 	}
 	defer conn1.Close()
 
 	// Connect to server2
 	conn2, err := net.Dial("tcp", server2)
 	if err != nil {
-		log.Fatalf("Failed to connect to server2: %v", err)
+		log.Printf("Failed to connect to server2: %v", err)
+		return
 	}
 	defer conn2.Close()
 
@@ -69,9 +74,13 @@ func putFile(fileName string) {
 	part1FileName := addSuffixToFileName(fileName, "part1")
 	part2FileName := addSuffixToFileName(fileName, "part2")
 
-	// 0: put command, 1: get command
-	sendCommand(conn1, "0:"+part1FileName)
-	sendCommand(conn2, "0:"+part2FileName)
+	// 1: put command, 2: get command
+	if err := sendCommand(conn1, "1:"+part1FileName); err != nil {
+		return
+	}
+	if err := sendCommand(conn2, "1:"+part2FileName); err != nil {
+		return
+	}
 
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -100,28 +109,43 @@ func getFile(fileName string) {
 	// connect to server1
 	conn1, err := net.Dial("tcp", server1)
 	if err != nil {
-		log.Fatalf("Failed to connect to server1: %v", err)
+		log.Printf("Failed to connect to server1: %v", err)
+		return
 	}
+	reader1 := bufio.NewReader(conn1)
 	defer conn1.Close()
 
 	// connect to server 2
 	conn2, err := net.Dial("tcp", server2)
 	if err != nil {
-		log.Fatalf("Failed to connect to server2: %v", err)
+		log.Printf("Failed to connect to server2: %v", err)
+		return
 	}
+	reader2 := bufio.NewScanner()
 	defer conn2.Close()
 
 	part1FileName := addSuffixToFileName(fileName, "part1")
 	part2FileName := addSuffixToFileName(fileName, "part2")
 
-	// 0: put command, 1: get command
-	sendCommand(conn1, "1:"+part1FileName)
-	sendCommand(conn2, "1:"+part2FileName)
+	// 1: put command, 2: get command
+	if err := sendCommand(conn1, "2:"+part1FileName); err != nil {
+		return
+	}
+	if err := sendCommand(conn2, "2:"+part2FileName); err != nil {
+		return
+	}
+
+	// Check whether both files in servers
+	if !checkServerResponse(conn1, "server1") || !checkServerResponse(conn2, "server2") {
+		log.Println("File retrieval failed due to missing parts on servers")
+		return
+	}
 
 	// Create merged file
 	mergedFile, err := os.Create(mergedFileName)
 	if err != nil {
-		log.Fatalf("Failed to create merged file: %v", err)
+		log.Printf("Failed to create merged file: %v", err)
+		return
 	}
 	defer mergedFile.Close()
 
@@ -140,11 +164,13 @@ func getFile(fileName string) {
 	<-done
 	log.Println("File received and merged successfully")
 }
-func sendCommand(conn net.Conn, action string) {
+func sendCommand(conn net.Conn, action string) error {
 	_, err := conn.Write([]byte(action + "\n"))
 	if err != nil {
-		log.Fatalf("Failed to send action: %v", err)
+		log.Printf("Failed to send action: %v", err)
+		return err
 	}
+	return nil
 }
 
 func sendAlternateBytes(reader io.Reader, writer io.Writer, offset int) {
@@ -234,4 +260,20 @@ func mergeAndWriteBytes(ch1, ch2 <-chan byte, file *os.File, done chan<- bool) {
 		}
 	}
 	done <- true
+}
+
+// returns false when there is an error
+func checkServerResponse(conn net.Conn, serverName string) bool {
+	reader := bufio.NewReader(conn)
+	response, err := reader.ReadString('\n')
+	if err != nil {
+		log.Printf("Failed to read response from %s: %v", serverName, err)
+		return false
+	}
+	response = strings.TrimSpace(response)
+	if strings.HasPrefix(response, "ERROR:") {
+		log.Printf("Error from %s: %s", serverName, response)
+		return false
+	}
+	return true
 }
