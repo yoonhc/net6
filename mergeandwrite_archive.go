@@ -6,20 +6,25 @@ package main
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 	"log"
 	"net"
 	"os"
+	"os/signal"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 )
 
 const (
 	server1 = "nsl2.cau.ac.kr:42253"
 	server2 = "nsl5.cau.ac.kr:52253"
 )
+
+var conn1 net.Conn
+var conn2 net.Conn
 
 func main() {
 	if len(os.Args) != 3 {
@@ -28,6 +33,9 @@ func main() {
 
 	action := os.Args[1]   // <put/get> command
 	fileName := os.Args[2] // <filename>
+
+	// Handles abrupt exit
+	abruptCloseHandler()
 
 	if action == "put" {
 		putFile(fileName)
@@ -75,17 +83,11 @@ func putFile(fileName string) {
 	part1FileName := addSuffixToFileName(fileName, "part1")
 	part2FileName := addSuffixToFileName(fileName, "part2")
 
-	part1FileSize := (fileSize / 2) + 1
-	part2FileSize := (fileSize / 2)
-
 	// 1: put command, 2: get command
-	// sendCommand format: <1:fileName:fileSize>
-	if err := sendCommand(conn1, "1:"+part1FileName+":"+
-		strconv.FormatInt(part1FileSize, 10)); err != nil {
+	if err := sendCommand(conn1, "1:"+part1FileName); err != nil {
 		return
 	}
-	if err := sendCommand(conn2, "1:"+part2FileName+":"+
-		strconv.FormatInt(part2FileSize, 10)); err != nil {
+	if err := sendCommand(conn2, "1:"+part2FileName); err != nil {
 		return
 	}
 
@@ -282,4 +284,20 @@ func checkServerResponse(reader *bufio.Reader, serverName string) bool {
 		return false
 	}
 	return true
+}
+
+func abruptCloseHandler() {
+	interrupt := make(chan os.Signal, 1)
+	signal.Notify(interrupt, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-interrupt
+		fmt.Println("\nClosing Client Program...")
+		if conn1 != nil {
+			conn1.Close()
+		}
+		if conn1 != nil {
+			conn2.Close()
+		}
+		os.Exit(0)
+	}()
 }

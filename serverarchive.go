@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -52,19 +53,20 @@ func handleConnection(conn net.Conn) {
 		log.Printf("Failed to read command: %v", err)
 		return
 	}
+	// command format: <1:fileName:fileSize>
 	command = strings.TrimSpace(command)
 	parts := strings.Split(command, ":")
-	if len(parts) != 2 {
+	if len(parts) != 3 {
 		log.Printf("Invalid command: %s", command)
 		return
 	}
 
 	// action 1: <put>	action 2: <get>
 	action, partFileName := parts[0], parts[1]
-	log.Print(partFileName)
+	partFileSize, err := strconv.ParseInt(parts[2], 10, 64)
 
 	if action == "1" { // put command
-		receiveFile(reader, partFileName)
+		receiveFile(reader, partFileName, partFileSize)
 	} else if action == "2" { // get command
 		sendFile(conn, partFileName)
 	} else {
@@ -73,7 +75,7 @@ func handleConnection(conn net.Conn) {
 }
 
 // receive split file from the client
-func receiveFile(reader *bufio.Reader, partFileName string) {
+func receiveFile(reader *bufio.Reader, partFileName string, partFileSize int64) {
 	file, err := os.Create(partFileName)
 	if err != nil {
 		log.Printf("Failed to create file: %v", err)
@@ -81,12 +83,29 @@ func receiveFile(reader *bufio.Reader, partFileName string) {
 	}
 	defer file.Close()
 
+	log.Printf("Receiving file <%s>...", partFileName)
+
 	_, err = io.Copy(file, reader)
 	if err != nil {
 		log.Printf("Failed to write data to file: %v", err)
+		os.Remove(partFileName)
+		log.Printf("Removed file %s due to error", partFileName)
 		return
 	}
+	// Get file size
+	fileInfo, err := file.Stat()
+	if err != nil {
+		log.Printf("Failed to get file info: %v", err)
+		return
+	}
+	receivedFileSize := fileInfo.Size()
 
+	if receivedFileSize != partFileSize {
+		log.Printf("Error occured while receiving %s", partFileName)
+		os.Remove(partFileName)
+		log.Printf("Removed file %s due to error", partFileName)
+		return
+	}
 	log.Printf("File %s received successfully", partFileName)
 }
 
@@ -103,6 +122,7 @@ func sendFile(conn net.Conn, partFileName string) {
 	// file does exist. send ok message
 	sendFileExistenceMessage(conn, partFileName, true)
 
+	log.Printf("Sending file <%s>...", partFileName)
 	_, err = io.Copy(conn, file)
 	if err != nil {
 		log.Printf("Failed to send data: %v", err)
