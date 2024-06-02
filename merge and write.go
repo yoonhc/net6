@@ -96,6 +96,8 @@ func putFile(fileName string) {
 	sectionReader1 := io.NewSectionReader(file, 0, fileSize)
 	sectionReader2 := io.NewSectionReader(file, 0, fileSize)
 
+	log.Println("Sending files to both servers...")
+
 	go func() {
 		defer wg.Done()
 		sendAlternateBytes(sectionReader1, conn1, 0)
@@ -135,16 +137,19 @@ func getFile(fileName string) {
 	part2FileName := addSuffixToFileName(fileName, "part2")
 
 	// 1: put command, 2: get command
-	if err := sendCommand(conn1, "2:"+part1FileName); err != nil {
+	if err := sendCommand(conn1, "2:"+part1FileName+":"); err != nil {
 		return
 	}
-	if err := sendCommand(conn2, "2:"+part2FileName); err != nil {
+	if err := sendCommand(conn2, "2:"+part2FileName+":"); err != nil {
 		return
 	}
 
-	// Check whether both files in servers
-	if !checkServerResponse(reader1, "server1") || !checkServerResponse(reader2, "server2") {
-		log.Println("File retrieval failed due to missing parts on servers")
+	// Check whether both files exist in servers
+	part1FileSize, ok1 := checkServerResponse(reader1, "server1")
+	part2FileSize, ok2 := checkServerResponse(reader2, "server2")
+
+	if !ok1 || !ok2 {
+		log.Println("file retrieval failed due to missing parts on servers")
 		return
 	}
 
@@ -161,6 +166,8 @@ func getFile(fileName string) {
 	ch2 := make(chan byte)
 	done := make(chan bool)
 
+	log.Println("Receiving files from both servers...")
+
 	// Receive and send data to channels
 	go receiveAlternateBytes(reader1, ch1)
 	go receiveAlternateBytes(reader2, ch2)
@@ -169,7 +176,21 @@ func getFile(fileName string) {
 	go mergeAndWriteBytes(ch1, ch2, mergedFile, done)
 
 	<-done
-	log.Println("File received and merged successfully")
+	// Get file size
+	fileInfo, err := mergedFile.Stat()
+	if err != nil {
+		log.Printf("Failed to get file info: %v", err)
+		return
+	}
+	mergedFileSize := fileInfo.Size()
+
+	if mergedFileSize != (part1FileSize + part2FileSize) {
+		log.Printf("Error occured while receiving <%s>", mergedFileName)
+		os.Remove(mergedFileName)
+		log.Printf("Removed file %s due to error", mergedFileName)
+		return
+	}
+	log.Printf("file <%s> received successfully", mergedFileName)
 }
 func sendCommand(conn net.Conn, action string) error {
 	_, err := conn.Write([]byte(action + "\n"))
@@ -186,7 +207,7 @@ func sendAlternateBytes(reader io.Reader, writer io.Writer, offset int) {
 	for {
 		n, err := reader.Read(buffer)    // read 1024 bytes(A chunk) of file
 		if err != nil && err != io.EOF { // failed to read file
-			log.Fatalf("Failed to read file: %v", err)
+			log.Printf("Failed to read file: %v", err)
 		}
 		if n == 0 { // number of bytes read from chunk is 0 which means EOF
 			break
@@ -195,7 +216,7 @@ func sendAlternateBytes(reader io.Reader, writer io.Writer, offset int) {
 		for i := offset; i < n; i += 2 {
 			_, err := writer.Write(buffer[i : i+1])
 			if err != nil {
-				log.Fatalf("Failed to write data: %v", err)
+				log.Printf("Failed to write data: %v", err)
 			}
 		}
 	}
@@ -205,10 +226,10 @@ func receiveAlternateBytes(reader *bufio.Reader, ch chan<- byte) {
 	buffer := make([]byte, 1)
 	for {
 		n, err := reader.Read(buffer)
-		if err != nil && err != io.EOF {
-			log.Fatalf("Failed to read data: %v", err)
+		if err != nil {
+			log.Printf("Failed to receive data: %v", err)
 		}
-		if n == 0 {
+		if n == 0 { // successfully read all the file
 			break
 		}
 		ch <- buffer[0]
@@ -232,37 +253,27 @@ func mergeAndWriteBytes(ch1, ch2 <-chan byte, file *os.File, done chan<- bool) {
 	readFromCh1 := true
 
 	for {
-		if readFromCh1 {
+		if readFromCh1 { // Time to get byte from channel1
 			b1, ok1 = <-ch1
 			if ok1 {
 				_, err := file.Write([]byte{b1})
 				if err != nil {
-					log.Fatalf("Failed to write to merged file: %v", err)
+					log.Printf("Failed to write to merged file: %v", err)
 				}
 				readFromCh1 = false
 			} else {
-				b2, ok2 = <-ch2
-				if !ok2 {
-					break
-				} else {
-					readFromCh1 = false
-				}
+				break
 			}
-		} else {
+		} else { // Time to get byte from channel2
 			b2, ok2 = <-ch2
-			if ok2 {
+			if ok2 { // channel 2 good to go
 				_, err := file.Write([]byte{b2})
 				if err != nil {
-					log.Fatalf("Failed to write to merged file: %v", err)
+					log.Printf("Failed to write to merged file: %v", err)
 				}
 				readFromCh1 = true
 			} else {
-				b1, ok1 = <-ch1
-				if !ok1 {
-					break
-				} else {
-					readFromCh1 = true
-				}
+				break
 			}
 		}
 	}
@@ -270,16 +281,23 @@ func mergeAndWriteBytes(ch1, ch2 <-chan byte, file *os.File, done chan<- bool) {
 }
 
 // returns false when there is an error
-func checkServerResponse(reader *bufio.Reader, serverName string) bool {
+func checkServerResponse(reader *bufio.Reader, serverName string) (int64, bool) {
 	response, err := reader.ReadString('\n')
 	if err != nil {
 		log.Printf("Failed to read response from %s: %v", serverName, err)
-		return false
+		return 0, false
 	}
 	response = strings.TrimSpace(response)
 	if strings.HasPrefix(response, "ERROR:") {
 		log.Printf("Error from %s: %s", serverName, response)
-		return false
+		return 0, false
 	}
-	return true
+	if strings.HasPrefix(response, "OK:") {
+		// Extract file size from the response
+		fileSizeString := strings.TrimPrefix(response, "OK:")
+		fileSizeString = strings.TrimSpace(fileSizeString)
+		fileSize, _ := strconv.ParseInt(fileSizeString, 10, 64)
+		return fileSize, true
+	}
+	return 0, false
 }

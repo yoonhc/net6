@@ -63,7 +63,7 @@ func handleConnection(conn net.Conn) {
 
 	// action 1: <put>	action 2: <get>
 	action, partFileName := parts[0], parts[1]
-	partFileSize, err := strconv.ParseInt(parts[2], 10, 64)
+	partFileSize, _ := strconv.ParseInt(parts[2], 10, 64)
 
 	if action == "1" { // put command
 		receiveFile(reader, partFileName, partFileSize)
@@ -89,7 +89,7 @@ func receiveFile(reader *bufio.Reader, partFileName string, partFileSize int64) 
 	if err != nil {
 		log.Printf("Failed to write data to file: %v", err)
 		os.Remove(partFileName)
-		log.Printf("Removed file %s due to error", partFileName)
+		log.Printf("Removed file <%s> due to error", partFileName)
 		return
 	}
 	// Get file size
@@ -103,10 +103,10 @@ func receiveFile(reader *bufio.Reader, partFileName string, partFileSize int64) 
 	if receivedFileSize != partFileSize {
 		log.Printf("Error occured while receiving %s", partFileName)
 		os.Remove(partFileName)
-		log.Printf("Removed file %s due to error", partFileName)
+		log.Printf("Removed file <%s> due to error", partFileName)
 		return
 	}
-	log.Printf("File %s received successfully", partFileName)
+	log.Printf("file <%s> received successfully", partFileName)
 }
 
 // send split file to the client
@@ -114,13 +114,21 @@ func sendFile(conn net.Conn, partFileName string) {
 	file, err := os.Open(partFileName)
 	if err != nil {
 		log.Printf("Failed to open file: %v", err)
-		sendFileExistenceMessage(conn, partFileName, false)
+		sendErrorMessage(conn, partFileName)
 		return
 	}
 	defer file.Close()
 
+	// Get file size
+	fileInfo, err := file.Stat()
+	if err != nil {
+		log.Printf("Failed to get file info: %v", err)
+		return
+	}
+	partFileSize := fileInfo.Size()
+
 	// file does exist. send ok message
-	sendFileExistenceMessage(conn, partFileName, true)
+	sendOKMessage(conn, partFileName, partFileSize)
 
 	log.Printf("Sending file <%s>...", partFileName)
 	_, err = io.Copy(conn, file)
@@ -129,7 +137,7 @@ func sendFile(conn net.Conn, partFileName string) {
 		return
 	}
 
-	log.Printf("File %s sent successfully", partFileName)
+	log.Printf("file <%s> sent successfully", partFileName)
 }
 
 // add suffix to file name
@@ -143,16 +151,17 @@ func addSuffixToFileName(fileName, suffix string) (filename string) {
 }
 
 // send response message to the client that requested file does/doesn't exist in the server
-func sendFileExistenceMessage(conn net.Conn, fileName string, exists bool) {
-	if !exists {
-		_, err := conn.Write([]byte("ERROR: <" + fileName + "> file does not exist!\n"))
-		if err != nil {
-			log.Printf("Failed to send error message: %v", err)
-		}
-	} else {
-		_, err := conn.Write([]byte("OK: <" + fileName + "> file does exist\n"))
-		if err != nil {
-			log.Printf("Failed to send ok message: %v", err)
-		}
+func sendErrorMessage(conn net.Conn, fileName string) {
+	_, err := conn.Write([]byte("ERROR: <" + fileName + "> file does not exist!\n"))
+	if err != nil {
+		log.Printf("Failed to send error message: %v", err)
+	}
+}
+
+// send response message to the client that requested file does/doesn't exist in the server
+func sendOKMessage(conn net.Conn, fileName string, partFileSize int64) {
+	_, err := conn.Write([]byte("OK:" + strconv.FormatInt(partFileSize, 10) + "\n"))
+	if err != nil {
+		log.Printf("Failed to send error message: %v", err)
 	}
 }
