@@ -59,13 +59,13 @@ func handleConnection(conn net.Conn) {
 		return
 	}
 
-	// action 0: <put>	action 1: <get>
+	// action 1: <put>	action 2: <get>
 	action, partFileName := parts[0], parts[1]
 	log.Print(partFileName)
 
-	if action == "0" { // put command
+	if action == "1" { // put command
 		receiveFile(reader, partFileName)
-	} else if action == "1" { // get command
+	} else if action == "2" { // get command
 		sendFile(conn, partFileName)
 	} else {
 		log.Printf("Unknown action: %s", action)

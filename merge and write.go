@@ -121,7 +121,7 @@ func getFile(fileName string) {
 		log.Printf("Failed to connect to server2: %v", err)
 		return
 	}
-	reader2 := bufio.NewScanner()
+	reader2 := bufio.NewReader(conn2)
 	defer conn2.Close()
 
 	part1FileName := addSuffixToFileName(fileName, "part1")
@@ -136,7 +136,7 @@ func getFile(fileName string) {
 	}
 
 	// Check whether both files in servers
-	if !checkServerResponse(conn1, "server1") || !checkServerResponse(conn2, "server2") {
+	if !checkServerResponse(reader1, "server1") || !checkServerResponse(reader2, "server2") {
 		log.Println("File retrieval failed due to missing parts on servers")
 		return
 	}
@@ -155,8 +155,8 @@ func getFile(fileName string) {
 	done := make(chan bool)
 
 	// Receive and send data to channels
-	go receiveAlternateBytes(conn1, ch1)
-	go receiveAlternateBytes(conn2, ch2)
+	go receiveAlternateBytes(reader1, ch1)
+	go receiveAlternateBytes(reader2, ch2)
 
 	// Merge the bytes from both channels and write to merged file
 	go mergeAndWriteBytes(ch1, ch2, mergedFile, done)
@@ -194,10 +194,10 @@ func sendAlternateBytes(reader io.Reader, writer io.Writer, offset int) {
 	}
 }
 
-func receiveAlternateBytes(conn net.Conn, ch chan<- byte) {
+func receiveAlternateBytes(reader *bufio.Reader, ch chan<- byte) {
 	buffer := make([]byte, 1)
 	for {
-		n, err := conn.Read(buffer)
+		n, err := reader.Read(buffer)
 		if err != nil && err != io.EOF {
 			log.Fatalf("Failed to read data: %v", err)
 		}
@@ -263,8 +263,7 @@ func mergeAndWriteBytes(ch1, ch2 <-chan byte, file *os.File, done chan<- bool) {
 }
 
 // returns false when there is an error
-func checkServerResponse(conn net.Conn, serverName string) bool {
-	reader := bufio.NewReader(conn)
+func checkServerResponse(reader *bufio.Reader, serverName string) bool {
 	response, err := reader.ReadString('\n')
 	if err != nil {
 		log.Printf("Failed to read response from %s: %v", serverName, err)

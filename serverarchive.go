@@ -95,10 +95,13 @@ func sendFile(conn net.Conn, partFileName string) {
 	file, err := os.Open(partFileName)
 	if err != nil {
 		log.Printf("Failed to open file: %v", err)
-		sendError(conn, partFileName)
+		sendFileExistenceMessage(conn, partFileName, false)
 		return
 	}
 	defer file.Close()
+
+	// file does exist. send ok message
+	sendFileExistenceMessage(conn, partFileName, true)
 
 	_, err = io.Copy(conn, file)
 	if err != nil {
@@ -119,10 +122,17 @@ func addSuffixToFileName(fileName, suffix string) (filename string) {
 	return addedSuffixName
 }
 
-// send error message to the client that requested file does not exist in the server
-func sendError(conn net.Conn, fileName string) {
-	_, err := conn.Write([]byte("ERROR: <" + fileName + "> file does not exist!\n"))
-	if err != nil {
-		log.Printf("Failed to send error message: %v", err)
+// send response message to the client that requested file does/doesn't exist in the server
+func sendFileExistenceMessage(conn net.Conn, fileName string, exists bool) {
+	if !exists {
+		_, err := conn.Write([]byte("ERROR: <" + fileName + "> file does not exist!\n"))
+		if err != nil {
+			log.Printf("Failed to send error message: %v", err)
+		}
+	} else {
+		_, err := conn.Write([]byte("OK: <" + fileName + "> file does exist\n"))
+		if err != nil {
+			log.Printf("Failed to send ok message: %v", err)
+		}
 	}
 }
